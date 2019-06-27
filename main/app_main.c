@@ -14,8 +14,13 @@
 #include "smsplus-main.h"
 
 
+uint16_t *oledBuf;
+uint16_t *overlay;
+
 void app_main()
 {
+	oledBuf=heap_caps_malloc(KC_SCREEN_W*KC_SCREEN_H*sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
+	overlay=heap_caps_malloc(KC_SCREEN_W*KC_SCREEN_H*sizeof(uint16_t), MALLOC_CAP_DMA | MALLOC_CAP_8BIT);
 	kchal_init();
 //	nvs_flash_init();
 	

@@ -1,4 +1,5 @@
 #include <stdio.h>
+#include <math.h>
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "esp_system.h"
@@ -16,6 +17,7 @@
 #include "smsplus-main.h"
 #include "ugui.h"
 #include "powerbtn_menu.h"
+#include "esp_wifi.h"
 
 #define SMS_FPS 60
 #define SNDRATE 22050
@@ -42,13 +44,13 @@ static int readJs() {
 	return (b&KC_BTN_POWER);
 }
 
-
-
-uint16_t oledBuf[80*64];
-uint32_t overlay[80*64];
+//uint16_t oledBuf[KC_SCREEN_W*KC_SCREEN_H];
+//uint16_t overlay[KC_SCREEN_W*KC_SCREEN_H];
+extern uint16_t *oledBuf;
+extern uint16_t *overlay;
 int showOverlay=false;
 
-int addOverlayPixel(uint16_t p, uint32_t ov) {
+int addOverlayPixel(uint16_t p, uint16_t ov) {
 	int or, og, ob, a;
 	int br, bg, bb;
 	int r,g,b;
@@ -56,7 +58,7 @@ int addOverlayPixel(uint16_t p, uint32_t ov) {
 	bg=((p>>5)&0x3f)<<2;
 	bb=((p>>0)&0x1f)<<3;
 
-	a=(ov>>24)&0xff;
+	a=(ov)&0xff;
 	//hack: Always show background darker
 	a=(a/2)+128;
 
@@ -71,16 +73,23 @@ int addOverlayPixel(uint16_t p, uint32_t ov) {
 	return ((r>>(3+8))<<11)+((g>>(2+8))<<5)+((b>>(3+8))<<0);
 }
 
-
 int dframe;
-
 
 //SMS screen is the full 256x192
 static void lcdWriteSMSFrame() {
 	int rgb[3];
 	uint8_t *data=bitmap.data;
 	uint16_t *p=oledBuf;
-	uint32_t *ov=overlay;
+	uint16_t *ov=overlay;
+	uint32_t pal[32];
+	for (int x=0; x<32; x++) {
+		/*
+		pal[0][x]=((bitmap.pal.color[x][0]>>3)<<11)+((bitmap.pal.color[x][1]>>3)<<5);
+		pal[1][x]=((bitmap.pal.color[x][1]>>3)<<5)+((bitmap.pal.color[x][2]>>3)<<0);
+		*/
+		pal[x]=((bitmap.pal.color[x][0]>>3)<<11)|((bitmap.pal.color[x][1]>>2)<<5)|(bitmap.pal.color[x][2]>>3);
+	}
+	/*
 	for (int y=0; y<192; y+=3) {
 		for (int x=0; x<240; x+=3) {
 			for (int sp=0; sp<3; sp++) {
@@ -94,6 +103,27 @@ static void lcdWriteSMSFrame() {
 			*p++=(col>>8)|((col&0xff)<<8);
 		}
 	}
+	*/
+	float x_ratio = 256/(float)KC_SCREEN_W;
+	float y_ratio = 192/(float)KC_SCREEN_H;
+	for(int y=0 ;  y<KC_SCREEN_H; y++) {
+		for(int x=0; x<KC_SCREEN_W; x++) {
+			int x2 = floor(x*x_ratio);
+    		int y2 = floor(y*y_ratio);
+    		/*
+    		for (int sp=0; sp<3; sp++) {
+				rgb[sp]=bitmap.pal.color[data[(x2+sp)+((y2+0)*256)]&PIXEL_MASK][sp];
+				rgb[sp]+=bitmap.pal.color[data[(x2+sp)+((y2+1)*256)]&PIXEL_MASK][sp];
+				rgb[sp]+=bitmap.pal.color[data[(x2+sp)+((y2+2)*256)]&PIXEL_MASK][sp];
+				rgb[sp]/=3;
+			}
+			uint16_t col=((rgb[0]>>3)<<11)+((rgb[1]>>2)<<5)+((rgb[2]>>3)<<0);
+			*/
+			uint32_t col=pal[data[x2+(y2*256)]&PIXEL_MASK];
+			if (showOverlay) col=addOverlayPixel(col, *ov++);
+			*p++=(col>>8)|((col&0xff)<<8);
+		}
+	}
 	kchal_send_fb(oledBuf);
 	dframe++;
 }
@@ -102,13 +132,17 @@ static void lcdWriteSMSFrame() {
 static void lcdWriteGGFrame() {
 	uint8_t *data=bitmap.data;
 	uint16_t *p=oledBuf;
-	uint32_t *ov=overlay;
-	uint32_t pal[2][32];
+	uint16_t *ov=overlay;
+	//uint32_t pal[2][32];
+	uint32_t pal[32];
 	for (int x=0; x<32; x++) {
+		/*
 		pal[0][x]=((bitmap.pal.color[x][0]>>3)<<11)+((bitmap.pal.color[x][1]>>3)<<5);
 		pal[1][x]=((bitmap.pal.color[x][1]>>3)<<5)+((bitmap.pal.color[x][2]>>3)<<0);
+		*/
+		pal[x]=((bitmap.pal.color[x][0]>>3)<<11)|((bitmap.pal.color[x][1]>>2)<<5)|(bitmap.pal.color[x][2]>>3);
 	}
-
+/*
 	int t=0;
 	for (int y=24; y<144+24; y+=2) {
 		for (int x=48; x<160+48; x+=2) {
@@ -125,6 +159,27 @@ static void lcdWriteGGFrame() {
 		if (t==4) {
 			y++;
 			t=0;
+		}
+	}
+*/	
+	float x_ratio = 160/(float)KC_SCREEN_W;
+	float y_ratio = 144/(float)KC_SCREEN_H;
+	for(int y=0 ;  y<KC_SCREEN_H; y++) {
+		for(int x=0; x<KC_SCREEN_W; x++) {
+			int x2 = floor(x*x_ratio);
+    		int y2 = floor(y*y_ratio);
+
+    		uint32_t c=0;
+    		/*
+			c+=pal[0][data[(x2+48)+((y2+24)*256)]&PIXEL_MASK];
+			c+=pal[1][data[(x2+48+1)+((y2+24)*256)]&PIXEL_MASK];
+			c+=pal[0][data[(x2+48)+((y2+24+1)*256)]&PIXEL_MASK];
+			c+=pal[1][data[(x2+48+1)+((y2+24+1)*256)]&PIXEL_MASK];
+			c/=4;
+			*/
+			c=pal[data[(x2+48)+((y2+24)*256)]&PIXEL_MASK];
+			if (showOverlay) c=addOverlayPixel(c, *ov++);
+			*p++=(c>>8)|((c&0xff)<<8);
 		}
 	}
 	kchal_send_fb(oledBuf);
@@ -148,7 +203,7 @@ void sms_system_load_sram(void) {
 }
 
 
-uint32_t *vidGetOverlayBuf() {
+uint16_t *vidGetOverlayBuf() {
 	return overlay;
 }
 
@@ -354,8 +409,6 @@ void emuThread(void *arg) {
 	}
 	kchal_power_down();
 }
-
-
 
 void smsemuStart() {
 	renderSem=xSemaphoreCreateBinary();

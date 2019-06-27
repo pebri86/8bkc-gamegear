@@ -9,5 +9,5 @@
 
 void smsemuStart();
 
-uint32_t *vidGetOverlayBuf();
+uint16_t *vidGetOverlayBuf();
 void vidRenderOverlay();

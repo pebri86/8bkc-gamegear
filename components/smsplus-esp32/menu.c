@@ -16,7 +16,7 @@ const char graphics[]={
 };
 
 
-void renderGfx(uint32_t *ovl, int dx, int dy, int sx, int sy, int sw, int sh) {
+void renderGfx(uint16_t *ovl, int dx, int dy, int sx, int sy, int sw, int sh) {
 	uint32_t *gfx=(uint32_t*)graphics;
 	int x, y, i;
 	if (dx<0) {
@@ -24,30 +24,30 @@ void renderGfx(uint32_t *ovl, int dx, int dy, int sx, int sy, int sw, int sh) {
 		sw+=dx;
 		dx=0;
 	}
-	if ((dx+sw)>80) {
-		sw-=((dx+sw)-80);
-		dx=80-sw;
+	if ((dx+sw)>KC_SCREEN_W) {
+		sw-=((dx+sw)-KC_SCREEN_W);
+		dx=KC_SCREEN_W-sw;
 	}
 	if (dy<0) {
 		sy-=dy;
 		sh+=dy;
 		dy=0;
 	}
-	if ((dy+sh)>64) {
-		sh-=((dy+sh)-64);
-		dy=64-sh;
+	if ((dy+sh)>KC_SCREEN_H) {
+		sh-=((dy+sh)-KC_SCREEN_H);
+		dy=KC_SCREEN_H-sh;
 	}
 
 	for (y=0; y<sh; y++) {
 		for (x=0; x<sw; x++) {
 			i=gfx[(sy+y)*80+(sx+x)];
-			if (i&0x80000000) ovl[(dy+y)*80+(dx+x)]=i;
+			if (i&0x80000000) ovl[(dy+y)*KC_SCREEN_W+(dx+x)]=i;
 		}
 	}
 }
 
 
-#define SCROLLSPD 4
+#define SCROLLSPD 8
 
 #define SCN_VOLUME 0
 #define SCN_BRIGHT 1
@@ -59,9 +59,9 @@ void renderGfx(uint32_t *ovl, int dx, int dy, int sx, int sy, int sw, int sh) {
 #define SCN_COUNT 6
 
 
-static void menuShowSnapshotting(uint32_t *overlay) {
-	memset(overlay, 0, 80*64*4);
-	renderGfx(overlay, 0, 14, 0, 268, 80, 40);
+static void menuShowSnapshotting(uint16_t *overlay) {
+	memset(overlay, 0, KC_SCREEN_W*KC_SCREEN_H*sizeof(uint16_t));
+	renderGfx(overlay, (KC_SCREEN_W-80)/2, ((KC_SCREEN_H-64)/2)+14, 0, 268, 80, 40);
 	vidRenderOverlay();
 }
 
@@ -74,11 +74,11 @@ int menuShow() {
 	int scroll=0;
 	int doRefresh=1;
 	int oldArrowsTick=-1;
-	uint32_t *overlay=vidGetOverlayBuf();
+	uint16_t *overlay=vidGetOverlayBuf();
 	kchal_sound_mute(1);
 	while(1) {
 		esp_task_wdt_feed();
-		memset(overlay, 0, 80*64*4);
+		memset(overlay, 0, KC_SCREEN_W*KC_SCREEN_H*sizeof(uint16_t));
 		newIo=kchal_get_keys();
 		//Filter out only newly pressed buttons
 		io=(oldIo^newIo)&newIo;
@@ -99,13 +99,15 @@ int menuShow() {
 			if (menuItem==SCN_BRIGHT) v=kchal_get_brightness();
 			if (newIo&KC_BTN_LEFT) v-=2;
 			if (newIo&KC_BTN_RIGHT) v+=2;
-			if (v<0) v=0;
-			if (v>255) v=255;
 			if (menuItem==SCN_VOLUME) {
+				if (v<0) v=0;
+				if (v>255) v=255;
 				kchal_set_volume(v);
 				doRefresh=1;
 			}
 			if (menuItem==SCN_BRIGHT) {
+				if (v<1) v=1;
+				if (v>100) v=100;
 				kchal_set_brightness(v);
 				doRefresh=1;
 			}
@@ -141,37 +143,43 @@ int menuShow() {
 
 		if (scroll>0) scroll+=SCROLLSPD;
 		if (scroll<0) scroll-=SCROLLSPD;
-		if (scroll>64 || scroll<-64) {
+		if (scroll>KC_SCREEN_H || scroll<-KC_SCREEN_H) {
 			prevItem=menuItem;
 			scroll=0;
 			doRefresh=1; //show last scroll thing
 		}
-		if (prevItem!=menuItem) renderGfx(overlay, 0, 16+scroll, 0,32*prevItem,80,32);
+		if (prevItem!=menuItem) renderGfx(overlay, ((KC_SCREEN_W-80)/2)+0, ((KC_SCREEN_H-64)/2)+16+scroll, 0,32*prevItem,80,32);
 		if (scroll) {
 			doRefresh=1;
-			renderGfx(overlay, 0, 16+scroll+((scroll>0)?-64:64), 0,32*menuItem,80,32);
+			renderGfx(overlay, ((KC_SCREEN_W-80)/2)+0, ((KC_SCREEN_H-64)/2)+16+scroll+((scroll>0)?-KC_SCREEN_H:KC_SCREEN_H), 0,32*menuItem,80,32);
 			oldArrowsTick=-1; //to force arrow redraw
 		} else {
-			renderGfx(overlay, 0, 16, 0,32*menuItem,80,32);
+			renderGfx(overlay, ((KC_SCREEN_W-80)/2)+0, ((KC_SCREEN_H-64)/2)+16, 0,32*menuItem,80,32);
 			//Render arrows
 			int t=xTaskGetTickCount()/(400/portTICK_PERIOD_MS);
 			t=(t&1);
 			if (t!=oldArrowsTick) {
 				doRefresh=1;
-				renderGfx(overlay, 36, 0, t?0:8, 308, 8, 8);
-				renderGfx(overlay, 36, 56, t?16:24, 308, 8, 8);
+				renderGfx(overlay, ((KC_SCREEN_W-80)/2)+36, ((KC_SCREEN_H-64)/2)+0, t?0:8, 308, 8, 8);
+				renderGfx(overlay, ((KC_SCREEN_W-80)/2)+36, ((KC_SCREEN_H-64)/2)+56, t?16:24, 308, 8, 8);
 				oldArrowsTick=t;
 			}
 		}
 		
 		//Handle volume/brightness bars
-		if (scroll==0 && (menuItem==SCN_VOLUME || menuItem==SCN_BRIGHT)) {
+		if (scroll==0 && (menuItem==SCN_VOLUME)) {
 			int v=0;
 			if (menuItem==SCN_VOLUME) v=kchal_get_volume();
-			if (menuItem==SCN_BRIGHT) v=kchal_get_brightness();
 			if (v<0) v=0;
 			if (v>255) v=255;
-			renderGfx(overlay, 14, 25+16, 14, 193, (v*60)/256, 4);
+			renderGfx(overlay, ((KC_SCREEN_W-80)/2)+14, ((KC_SCREEN_H-64)/2)+25+16, 14, 193, (v*60)/256, 4);
+		}
+		if (scroll==0 && (menuItem==SCN_BRIGHT)) {
+			int v=0;
+			if (menuItem==SCN_BRIGHT) v=kchal_get_brightness();
+			if (v<1) v=1;
+			if (v>100) v=100;
+			renderGfx(overlay, ((KC_SCREEN_W-80)/2)+14, ((KC_SCREEN_H-64)/2)+25+16, 14, 193, (v*60)/100, 4);
 		}
 		
 		if (doRefresh) {
